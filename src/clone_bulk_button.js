@@ -7,6 +7,11 @@
 @author: Extracellular
 */
 
+/*!
+ * © 2025 Extracellular — released under the MIT License
+ * See LICENSE file for details.
+ */
+
 var EC_CLONE_BULK_BUTTON = {};
 
 function make_clone_name(orig) {
