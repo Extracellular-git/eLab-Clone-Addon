@@ -1,5 +1,5 @@
 /*
-@rootVar: EC_CLONE_BULK_BUTTON
+@rootVar: EC_CLONE_BULK_BUTTON_BUTTON
 @name: Clone Bulk Button add-on
 @version: 1.0.0 
 @description: Extracellular Clone Bulk Button add-on for eLab
@@ -12,7 +12,7 @@
  * See LICENSE file for details.
  */
 
-var EC_CLONE_BULK_BUTTON = {};
+var EC_CLONE_BULK_BUTTON_BUTTON = {};
 
 function make_clone_name(orig) {
   const m = orig.match(/^(.*) \(cloned\)(?: (\d+))?$/);
@@ -32,6 +32,31 @@ function make_clone_name(orig) {
       // save the original names and sample IDs of the samples you want to clone, these will be the parent IDS
       const original_names = {};
       samples.forEach(sample => original_names[sample.sampleID] = sample.name);
+
+      // Track completion of all cloning operations
+      let completed = 0;
+      let errors = 0;
+      const total = samples.length;
+
+      const checkCompletion = (hasError = false) => {
+        completed++;
+        if (hasError) {
+          errors++;
+        }
+        
+        if (completed === total) {
+          if (errors === 0) {
+            setTimeout(() => {
+              console.log('All cloning operations completed successfully, refreshing page...');
+              eLabSDK2.UI.Toast.showToast('All samples cloned successfully! Refreshing page...');
+              window.location.reload();
+            }, 1500);
+          } else {
+            console.log(`Cloning completed with ${errors} error(s). Page will not refresh to allow error review.`);
+            eLabSDK2.UI.Toast.showToast(`Cloning completed with ${errors} error(s). Please review the console for details.`);
+          }
+        }
+      };
 
       samples.forEach(sample => {
         // Clone
@@ -54,6 +79,7 @@ function make_clone_name(orig) {
                 const clone = unarchived[unarchived.length - 1] // Find the newest un-archived child
                 if (!clone) {
                   console.warn(`No active clone found for sample ${sample.name} with ID ${sample.sampleID}`);
+                  checkCompletion(true); // Mark as error since no clone was found
                   return;
                 }
 
@@ -74,12 +100,14 @@ function make_clone_name(orig) {
                   onSuccess: (rename_xhr, rename_status, rename_response) => {
                     // eLabSDK2.UI.Toast.showToast(`Renamed cloned sample ${clone.sampleID} to ${new_name}, PLEASE REFRESH THE PAGE`);
                     console.log(`Renamed cloned sample ${clone.sampleID} to ${new_name}`);
+                    checkCompletion();
                   },
                   onError: (rename_xhr, rename_status, rename_error) => {
                     eLabSDK2.UI.Toast.showToast(`Error renaming cloned sample ${clone.sampleID}`);
                     console.error(`Error renaming cloned sample ${clone.sampleID}:`, rename_error);
                     console.error('Response:', rename_xhr);
                     console.error('Status:', rename_status);
+                    checkCompletion(true);
                   }
                 });
               },
@@ -88,6 +116,7 @@ function make_clone_name(orig) {
                 console.error(`Error fetching children for sample ${sample.name} with ID ${sample.sampleID}:`, child_error);
                 console.error('Response:', child_xhr);
                 console.error('Status:', child_status);
+                checkCompletion(true);
               }
             });
 
@@ -97,11 +126,12 @@ function make_clone_name(orig) {
             console.error(`Error cloning sample ${sample.name} with ID ${sample.sampleID}:`, error);
             console.error('Response:', xhr);
             console.error('Status:', status);
+            checkCompletion(true);
           }
         })
       });
 
-      eLabSDK2.UI.Toast.showToast(`CLONE PROCESS DONE!!!!!, PLEASE REFRESH THE PAGE`);
+      eLabSDK2.UI.Toast.showToast(`Starting clone process for ${total} sample(s)...`);
     }
 
     let bulkActionButton = {
@@ -120,5 +150,5 @@ function make_clone_name(orig) {
     eLabSDK2.Inventory.Sample.SampleList.registerAction(bulkActionButton)
   };
 
-})(EC_CLONE_BULK_BUTTON)
+})(EC_CLONE_BULK_BUTTON_BUTTON)
 
