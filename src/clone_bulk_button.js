@@ -1,5 +1,5 @@
 /*
-@rootVar: EC_CLONE_BULK_BUTTON_BUTTON
+@rootVar: EC_CLONE_BULK_BUTTON
 @name: Clone Bulk Button add-on
 @version: 1.0.0 
 @description: Extracellular Clone Bulk Button add-on for eLab
@@ -12,7 +12,7 @@
  * See LICENSE file for details.
  */
 
-var EC_CLONE_BULK_BUTTON_BUTTON = {};
+var EC_CLONE_BULK_BUTTON = {};
 
 function make_clone_name(orig, existingChildren) {
   // Filter children to only include direct clones (names that start with the original name + dash)
@@ -171,5 +171,5 @@ function make_clone_name(orig, existingChildren) {
     eLabSDK2.Inventory.Sample.SampleList.registerAction(bulkActionButton)
   };
 
-})(EC_CLONE_BULK_BUTTON_BUTTON)
+})(EC_CLONE_BULK_BUTTON)
 
