@@ -1,5 +1,5 @@
 /*
-@rootVar: EC_CLONE_BULK_BUTTON
+@rootVar: EC_CLONE_BULK_BUTTON_BUTTON
 @name: Clone Bulk Button add-on
 @version: 1.0.0 
 @description: Extracellular Clone Bulk Button add-on for eLab
@@ -12,16 +12,22 @@
  * See LICENSE file for details.
  */
 
-var EC_CLONE_BULK_BUTTON = {};
+var EC_CLONE_BULK_BUTTON_BUTTON = {};
 
-function make_clone_name(orig) {
-  const m = orig.match(/^(.*) \(cloned\)(?: (\d+))?$/);
-  if (!m) {
-    return `${orig} (cloned)`;
-  }
-  const base = m[1];
-  const num = m[2] ? parseInt(m[2], 10) + 1 : 1;
-  return `${base} (cloned) ${num}`;
+function make_clone_name(orig, existingChildren) {
+  // Filter children to only include direct clones (names that start with the original name + dash)
+  const clonePattern = new RegExp(`^${orig.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d+)(?:-.*)?$`);
+  const cloneNumbers = existingChildren
+    .filter(child => !child.archived && clonePattern.test(child.name))
+    .map(child => {
+      const match = child.name.match(clonePattern);
+      return match ? parseInt(match[1], 10) : 0;
+    })
+    .filter(num => num > 0);
+  
+  // Find the highest number and increment
+  const maxNumber = cloneNumbers.length > 0 ? Math.max(...cloneNumbers) : 0;
+  return `${orig}-${maxNumber + 1}`;
 }
 
 (function (context) {
@@ -59,76 +65,91 @@ function make_clone_name(orig) {
       };
 
       samples.forEach(sample => {
-        // Clone
+        // First, get existing children to determine the next clone number
         eLabSDK.API.call({
-          method: 'POST',
-          path: 'samples/{sampleID}/clone',
+          method: 'GET',
+          path: 'samples/{sampleID}/children',
           pathParams: {sampleID: sample.sampleID},
-          body: {cloneTimes: 1, trackParent: true, ignoreAutoNumbering: true},
-          onSuccess: () => {
-            console.log(`Sample ${sample.name} with ID ${sample.sampleID} cloned successfully.`);
-
-            // Fetch the cloned sample's children
+          onSuccess: (pre_child_xhr, pre_child_status, pre_child_response) => {
+            const existingChildren = pre_child_response.data || [];
+            
+            // Now clone the sample
             eLabSDK.API.call({
-              method: 'GET',
-              path: 'samples/{sampleID}/children',
+              method: 'POST',
+              path: 'samples/{sampleID}/clone',
               pathParams: {sampleID: sample.sampleID},
-              onSuccess: (child_xhr, child_status, child_response) => {
-                const list = child_response.data || child_response; // Handle both cases where children might be in data or directly in response
-                const unarchived = list.filter(child => !child.archived);
-                const clone = unarchived[unarchived.length - 1] // Find the newest un-archived child
-                if (!clone) {
-                  console.warn(`No active clone found for sample ${sample.name} with ID ${sample.sampleID}`);
-                  checkCompletion(true); // Mark as error since no clone was found
-                  return;
-                }
+              body: {cloneTimes: 1, trackParent: true, ignoreAutoNumbering: true},
+              onSuccess: () => {
+                console.log(`Sample ${sample.name} with ID ${sample.sampleID} cloned successfully.`);
 
-                // Rename the cloned sample
-                const new_name = make_clone_name(original_names[sample.sampleID]);
-                console.log(`Renaming cloned sample ${clone.name} with ID ${clone.sampleID} to ${new_name}`);
+                // Fetch the updated children list to find the new clone
                 eLabSDK.API.call({
-                  method: 'PATCH',
-                  path: 'samples/{sampleID}',
-                  pathParams: {sampleID: clone.sampleID},
-                  body: {
-                    name: new_name,
-                    quantitySettings: {
-                      unit: context.settings?.unit || 'Unit',
-                      displayUnit: context.settings?.displayUnit || 'Unit'
+                  method: 'GET',
+                  path: 'samples/{sampleID}/children',
+                  pathParams: {sampleID: sample.sampleID},
+                  onSuccess: (child_xhr, child_status, child_response) => {
+                    const list = child_response.data || child_response;
+                    const unarchived = list.filter(child => !child.archived);
+                    const clone = unarchived[unarchived.length - 1] // Find the newest un-archived child
+                    if (!clone) {
+                      console.warn(`No active clone found for sample ${sample.name} with ID ${sample.sampleID}`);
+                      checkCompletion(true);
+                      return;
                     }
+
+                    // Generate the new name based on original name and existing children
+                    const new_name = make_clone_name(original_names[sample.sampleID], existingChildren);
+                    console.log(`Renaming cloned sample ${clone.name} with ID ${clone.sampleID} to ${new_name}`);
+                    eLabSDK.API.call({
+                      method: 'PATCH',
+                      path: 'samples/{sampleID}',
+                      pathParams: {sampleID: clone.sampleID},
+                      body: {
+                        name: new_name,
+                        quantitySettings: {
+                          unit: context.settings?.unit || 'Unit',
+                          displayUnit: context.settings?.displayUnit || 'Unit'
+                        }
+                      },
+                      onSuccess: (rename_xhr, rename_status, rename_response) => {
+                        console.log(`Renamed cloned sample ${clone.sampleID} to ${new_name}`);
+                        checkCompletion();
+                      },
+                      onError: (rename_xhr, rename_status, rename_error) => {
+                        eLabSDK2.UI.Toast.showToast(`Error renaming cloned sample ${clone.sampleID}`);
+                        console.error(`Error renaming cloned sample ${clone.sampleID}:`, rename_error);
+                        console.error('Response:', rename_xhr);
+                        console.error('Status:', rename_status);
+                        checkCompletion(true);
+                      }
+                    });
                   },
-                  onSuccess: (rename_xhr, rename_status, rename_response) => {
-                    // eLabSDK2.UI.Toast.showToast(`Renamed cloned sample ${clone.sampleID} to ${new_name}, PLEASE REFRESH THE PAGE`);
-                    console.log(`Renamed cloned sample ${clone.sampleID} to ${new_name}`);
-                    checkCompletion();
-                  },
-                  onError: (rename_xhr, rename_status, rename_error) => {
-                    eLabSDK2.UI.Toast.showToast(`Error renaming cloned sample ${clone.sampleID}`);
-                    console.error(`Error renaming cloned sample ${clone.sampleID}:`, rename_error);
-                    console.error('Response:', rename_xhr);
-                    console.error('Status:', rename_status);
+                  onError: (child_xhr, child_status, child_error) => {
+                    eLabSDK2.UI.Toast.showToast(`Error fetching children for sample ${sample.sampleID}`);
+                    console.error(`Error fetching children for sample ${sample.name} with ID ${sample.sampleID}:`, child_error);
+                    console.error('Response:', child_xhr);
+                    console.error('Status:', child_status);
                     checkCompletion(true);
                   }
                 });
               },
-              onError: (child_xhr, child_status, child_error) => {
-                eLabSDK2.UI.Toast.showToast(`Error fetching children for sample ${sample.sampleID}`);
-                console.error(`Error fetching children for sample ${sample.name} with ID ${sample.sampleID}:`, child_error);
-                console.error('Response:', child_xhr);
-                console.error('Status:', child_status);
+              onError: (xhr, status, error) => {
+                eLabSDK2.UI.Toast.showToast(`Error cloning sample ${sample.sampleID}`);
+                console.error(`Error cloning sample ${sample.name} with ID ${sample.sampleID}:`, error);
+                console.error('Response:', xhr);
+                console.error('Status:', status);
                 checkCompletion(true);
               }
             });
-
           },
-          onError: (xhr, status, error) => {
-            eLabSDK2.UI.Toast.showToast(`Error cloning sample ${sample.sampleID}`);
-            console.error(`Error cloning sample ${sample.name} with ID ${sample.sampleID}:`, error);
-            console.error('Response:', xhr);
-            console.error('Status:', status);
+          onError: (pre_child_xhr, pre_child_status, pre_child_error) => {
+            eLabSDK2.UI.Toast.showToast(`Error fetching existing children for sample ${sample.sampleID}`);
+            console.error(`Error fetching existing children for sample ${sample.name} with ID ${sample.sampleID}:`, pre_child_error);
+            console.error('Response:', pre_child_xhr);
+            console.error('Status:', pre_child_status);
             checkCompletion(true);
           }
-        })
+        });
       });
 
       eLabSDK2.UI.Toast.showToast(`Starting clone process for ${total} sample(s)...`);
@@ -150,5 +171,5 @@ function make_clone_name(orig) {
     eLabSDK2.Inventory.Sample.SampleList.registerAction(bulkActionButton)
   };
 
-})(EC_CLONE_BULK_BUTTON)
+})(EC_CLONE_BULK_BUTTON_BUTTON)
 
